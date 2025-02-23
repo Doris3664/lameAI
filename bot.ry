@@ -1,0 +1,209 @@
+import telegram
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+import logging
+import random
+import requests
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Токен Telegram (вставь свой)
+TOKEN = '8111894982:AAGNMg8IV3rEcxz8HvZNp8LaNCuv5EMy7IU'
+
+# Счётчик запросов
+request_count = 0
+
+def start(update, context):
+    global request_count
+    user = update.message.from_user.first_name
+    welcome = f"Здравствуй, {user}! Я Лейм, твой гид по этому гнилому миру — спрашивай что угодно, отвечу с искрой."
+    update.message.reply_text(welcome)
+    request_count += 1
+    logger.info(f"Пользователь {user} запустил бота")
+
+def help_command(update, context):
+    global request_count
+    help_text = (
+        "✦ Лейм: твой проводник в хаосе ✦\n"
+        "Вот что я умею в этом гнилом мире:\n\n"
+        "➤ /start — начинаю с привета, будто мне не всё равно.\n"
+        "➤ /help — показываю этот шедевр, чтобы ты знал, с кем связался.\n"
+        "➤ 'погода в [город]' — выдам погоду где угодно, для Москвы и Челябинска — мои данные на 23 февраля 2025.\n"
+        "➤ 'шутка' или 'пошути' — кину шутку, чтобы ты не скис.\n"
+        "➤ 'кот' или 'кошка' — расскажу про этих пушистых властителей хаоса.\n"
+        "➤ 'факт' или 'расскажи что-нибудь' — дам бесполезный факт, чтобы мозг не заржавел.\n"
+        "➤ 'как дела' — отвечу про себя и спрошу про тебя.\n"
+        "➤ 'смысл', 'почему', 'зачем' — философские удары прямо в твою душу.\n"
+        "➤ 'что делать', 'как быть' — советы, как выстоять в этом бардаке.\n\n"
+        f"Меня спросили уже {request_count} раз — ты явно не можешь без меня жить."
+    )
+    update.message.reply_text(help_text)
+    request_count += 1
+    logger.info("Отправлен список команд через /help")
+
+def get_coordinates(city):
+    url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
+    headers = {'User-Agent': 'LeimBot/1.0'}
+    try:
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        if data:
+            return float(data[0]["lat"]), float(data[0]["lon"])
+        return None, None
+    except Exception as e:
+        logger.error(f"Ошибка геокодера: {str(e)}")
+        return None, None
+
+def get_weather(city, lat=None, lon=None):
+    if city == "челябинск":
+        return "На 23 февраля 2025 в Челябинске: -8°C, ощущается как -17°C из-за ветра 34 км/ч. Небо затянуто, влажность 100% — не замерзни, умник."
+    if city == "москва":
+        return "На 23 февраля 2025 в Москве: -5°C, ощущается как -12°C из-за ветра 25 км/ч. Облачно, влажность 90% — типичная столичная сырость."
+    
+    if lat is None or lon is None:
+        lat, lon = get_coordinates(city)
+        if lat is None or lon is None:
+            return f"Не нашёл город {city.capitalize()}, этот мир слишком кривой. Назови что-то внятное."
+    
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}¤t=temperature_2m,wind_speed_10m,relative_humidity_2m"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        temp = data["current"]["temperature_2m"]
+        wind = data["current"]["wind_speed_10m"]
+        humidity = data["current"]["relative_humidity_2m"]
+        return f"Сейчас в {city.capitalize()}: {temp}°C, ветер {wind} км/ч, влажность {humidity}%. Погода — очередной сюрприз от этого мира."
+    except Exception as e:
+        return f"Не могу узнать погоду для {city.capitalize()}, этот мир опять сломался. Ошибка: {str(e)}"
+
+def get_joke():
+    url = "https://v2.jokeapi.dev/joke/Any?type=single"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        return f"Шутка для тебя: {data['joke']}. Смешно? Ну, хотя бы не скучно."
+    except Exception:
+        return "Шутка сломалась, этот мир — сплошное недоразумение."
+
+def get_cat_fact():
+    url = "https://catfact.ninja/fact"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        return f"Факт о котах: {data['fact']}. Вот так живут эти пушистые твари."
+    except Exception:
+        return "Коты скрыли свои тайны, этот мир против меня."
+
+def get_random_fact():
+    url = "https://uselessfacts.jsph.pl/random.json?language=en"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        translations = [
+            f"Случайный факт: {data['text']}. Это тебе зачем-то знать.",
+            f"Вот тебе факт: {data['text']}. Мир полон такой чепухи.",
+            f"Факт из ниоткуда: {data['text']}. Теперь живи с этим."
+        ]
+        return random.choice(translations)
+    except Exception:
+        return "Факты кончились, этот мир слишком пустой."
+
+def handle_message(update, context):
+    global request_count
+    if update.message.from_user.id == context.bot.get_me().id:
+        logger.info("Пропущено сообщение от бота")
+        return
+    
+    user_input = update.message.text.lower()
+    logger.info(f"Получено сообщение: {user_input}")
+    request_count += 1
+    
+    if "погода" in user_input:
+        words = user_input.split()
+        city = next((w for w in words if w not in ["погода", "в"]), None)
+        if city:
+            answer = get_weather(city)
+        else:
+            answer = "Погода? Назови город, олух, или я решу, что ты про Луну спрашиваешь."
+        update.message.reply_text(answer)
+        logger.info("Отправлен ответ про погоду")
+        return
+    
+    if "шутка" in user_input or "пошути" in user_input:
+        answer = get_joke()
+        update.message.reply_text(answer)
+        logger.info("Отправлена шутка")
+        return
+    
+    if "кот" in user_input or "кошка" in user_input:
+        answer = get_cat_fact()
+        update.message.reply_text(answer)
+        logger.info("Отправлен факт о котах")
+        return
+    
+    if "факт" in user_input or "расскажи что-нибудь" in user_input:
+        answer = get_random_fact()
+        update.message.reply_text(answer)
+        logger.info("Отправлен случайный факт")
+        return
+    
+    if "как дела" in user_input or "у меня" in user_input:
+        responses = [
+            "Как дела? Как у мира перед взрывом — напряжённо и ярко. А у тебя что?",
+            "Что у тебя? Надеюсь, хаос в порядке, а не этот скучный уют.",
+            "Дела? Если ты ещё не взорвался от этой реальности, то всё нормально."
+        ]
+        answer = random.choice(responses)
+        update.message.reply_text(answer)
+        logger.info("Отправлен ответ про личное")
+        return
+    
+    if any(word in user_input for word in ["смысл", "почему", "зачем"]):
+        responses = [
+            "Смысл? Это хаос, который ты сам лепишь, пока мир пытается тебя задушить.",
+            "Почему? Потому что этот мир — сплошной бардак, и ты в нём главный игрок.",
+            "Зачем? Чтобы плюнуть в лицо судьбе и посмотреть, кто сдастся первым."
+        ]
+        answer = random.choice(responses)
+        update.message.reply_text(answer)
+        logger.info("Отправлен философский ответ")
+        return
+    
+    if any(word in user_input for word in ["что делать", "как быть", "как жить"]):
+        responses = [
+            "Что делать? Разнести всё к чёрту и посмотреть, что останется.",
+            "Как быть? Бери этот мир за горло, пока он не взял тебя.",
+            "Как жить? Шагай через хаос, будто он твой лучший друг."
+        ]
+        answer = random.choice(responses)
+        update.message.reply_text(answer)
+        logger.info("Отправлен ответ про действия")
+        return
+    
+    words = user_input.split()
+    if len(words) > 0:
+        key_word = words[0] if len(words) == 1 else " ".join(words[:2])
+        responses = [
+            f"{key_word.capitalize()}? Это что, твоя главная загадка? Давай глубже, я разверну этот мир с 23 февраля 2025.",
+            f"Ты про {key_word}? Назови хоть одну причину, почему это стоит моего внимания, и я дам тебе ответ.",
+            f"{key_word}? Ха, этот мир не готов к таким вопросам, но я попробую — что именно ты хочешь знать?"
+        ]
+        answer = random.choice(responses)
+    else:
+        answer = "Ты что, молчать пришёл? Задай вопрос, и я покажу тебе, как выглядит правда."
+    
+    update.message.reply_text(answer)
+    logger.info("Отправлен универсальный ответ")
+
+def main():
+    updater = Updater(TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    logger.info("Бот запущен")
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
